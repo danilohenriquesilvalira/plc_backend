@@ -9,6 +9,7 @@ type MensagemWS struct {
 // StatusPLC representa o status do PLC
 type StatusPLC struct {
 	ID                int    `json:"plc_id"`
+	Name              string `json:"name"` // Alterado de "plc_name" para "name"
 	Status            string `json:"status"`
 	UltimaAtualizacao string `json:"last_update"`
 }

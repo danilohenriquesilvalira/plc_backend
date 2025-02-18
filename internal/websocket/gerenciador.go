@@ -87,13 +87,14 @@ func (g *Gerenciador) coletarDados() {
 		for _, plc := range plcs {
 			tags, err := g.db.GetPLCTags(plc.ID)
 			if err != nil {
-				log.Printf("Erro ao buscar tags do PLC %d: %v", plc.ID, err)
+				log.Printf("Erro ao buscar tags do PLC %s (ID=%d): %v", plc.Name, plc.ID, err)
 				continue
 			}
 
 			msg := MensagemWS{
 				PLC: StatusPLC{
 					ID:                plc.ID,
+					Name:              plc.Name,
 					Status:            plc.Status,
 					UltimaAtualizacao: plc.LastUpdate.Format(time.RFC3339),
 				},
@@ -103,17 +104,11 @@ func (g *Gerenciador) coletarDados() {
 			for _, tag := range tags {
 				valor, err := g.redis.GetTagValue(plc.ID, tag.ID)
 				if err != nil {
-					// Se o valor não existir no Redis, usamos um valor padrão
 					msg.Tags = append(msg.Tags, ValorTag{
 						ID:    tag.ID,
 						Nome:  tag.Name,
-						Valor: nil, // ou um valor padrão apropriado para o tipo da tag
+						Valor: nil,
 					})
-
-					// Logamos apenas uma vez a cada minuto para não sobrecarregar os logs
-					if time.Now().Second() == 0 {
-						log.Printf("Tag %d (%s) sem valor no Redis", tag.ID, tag.Name)
-					}
 					continue
 				}
 
@@ -124,9 +119,17 @@ func (g *Gerenciador) coletarDados() {
 				})
 			}
 
-			// Só envia a mensagem se houver tags
 			if len(msg.Tags) > 0 {
-				g.broadcast <- msg
+				g.mutex.RLock()
+				for cliente := range g.clientes {
+					select {
+					case cliente.enviar <- msg:
+					default:
+						close(cliente.enviar)
+						delete(g.clientes, cliente)
+					}
+				}
+				g.mutex.RUnlock()
 			}
 		}
 	}
